@@ -8,7 +8,6 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
 import android.provider.MediaStore
 import android.view.View
 import android.widget.Toast
@@ -19,15 +18,12 @@ import com.example.jpeg_to_png_converter.databinding.ActivityMainBinding
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.schedulers.Schedulers
-import kotlinx.android.synthetic.main.loader.*
-import kotlinx.android.synthetic.main.loader.view.*
 
 import java.util.concurrent.TimeUnit
 
 
-
 class MainActivity : AppCompatActivity(), View.OnClickListener,
-    ConversionDialogFragment.OnButtonClickListener {
+    ConversionDialogFragment.OnButtonClickListener, ConverterView {
 
     private var pathImagePicked: String? = null
     private var pathImageConverted: String? = null
@@ -58,9 +54,7 @@ class MainActivity : AppCompatActivity(), View.OnClickListener,
         savedInstanceState?.let {
             pathImagePicked = it.getString(KEY_PATH_IMAGE_PICKED)
             pathImagePicked?.let { path ->
-                binding.imagePicked.setImageURI(Uri.parse(path))
-                binding.imagePicked.background = null
-                binding.textPathImagePicked.text = path
+                restoreImage(path)
 
                 isConverting = it.getBoolean(KEY_IS_CONVERTING, false)
                 if (isConverting) {
@@ -70,15 +64,13 @@ class MainActivity : AppCompatActivity(), View.OnClickListener,
                     )
                 }
             }
-
             pathImageConverted = it.getString(KEY_PATH_IMAGE_CONVERTED)
             pathImageConverted?.let { path ->
-                binding.imageConverted.setImageURI(Uri.parse(path))
-                binding.imageConverted.background = null
-                binding.textPathImageConverted.text = path
+                restoreImage(path)
             }
         }
     }
+
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
@@ -155,10 +147,7 @@ class MainActivity : AppCompatActivity(), View.OnClickListener,
         ) {
             val imagePickedUri = data.data
             if (imagePickedUri != null) {
-                binding.imagePicked.background = null
-                binding.imagePicked.setImageURI(imagePickedUri)
-                pathImagePicked = getPathFromUri(imagePickedUri)
-                binding.textPathImagePicked.text = pathImagePicked
+                setFirstImage(imagePickedUri)
             }
         }
     }
@@ -183,29 +172,26 @@ class MainActivity : AppCompatActivity(), View.OnClickListener,
 
         conversionDialogFragment = ConversionDialogFragment(this)
         conversionDialogFragment.show(supportFragmentManager, "conversionDialogTag")
-
         converterDisposable = CompositeDisposable()
+        converterDisposable?.add(
+            ImageConverter.convertJpgToPng(imagePicked, pathImagePicked)
+                .delay(3, TimeUnit.SECONDS)
+                .cache()
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe({
+                    setSuccess(it)
+                    pathImageConverted = it.first
+                    isConverting = false
 
-        converterDisposable?.add(ImageConverter.convertJpgToPng(imagePicked, pathImagePicked)
-            .delay(3, TimeUnit.SECONDS)
-            .cache()
-            .subscribeOn(Schedulers.io())
-            .observeOn(AndroidSchedulers.mainThread())
-            .subscribe({
-                Toast.makeText(this, "${it.first} converted to png.", Toast.LENGTH_LONG).show()
-                pathImageConverted = it.first
-                isConverting = false
+                    showResultImage(it.second)
 
-                binding.imageConverted.background = null
-                binding.imageConverted.setImageBitmap(it.second)
-                binding.textPathImageConverted.text = pathImageConverted
-
-                conversionDialogFragment.dismiss()
-            }, {
-                Toast.makeText(this, it.message, Toast.LENGTH_LONG).show()
-                isConverting = false
-                conversionDialogFragment.dismiss()
-            })
+                    conversionDialogFragment.dismiss()
+                }, {
+                    setError(it)
+                    isConverting = false
+                    conversionDialogFragment.dismiss()
+                })
         )
     }
 
@@ -214,4 +200,30 @@ class MainActivity : AppCompatActivity(), View.OnClickListener,
         conversionDialogFragment.dismiss()
     }
 
+    override fun setFirstImage(imagePickedUri: Uri) {
+        binding.imagePicked.background = null
+        binding.imagePicked.setImageURI(imagePickedUri)
+        pathImagePicked = getPathFromUri(imagePickedUri)
+        binding.textPathImagePicked.text = pathImagePicked
+    }
+
+    override fun setError(error: Throwable) {
+        Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
+    }
+
+    override fun setSuccess(it: Pair<String, Bitmap>) {
+        Toast.makeText(this, "${it.first} converted to png.", Toast.LENGTH_LONG).show()
+    }
+
+    override fun showResultImage(second: Bitmap) {
+        binding.imageConverted.background = null
+        binding.imageConverted.setImageBitmap(second)
+        binding.textPathImageConverted.text = pathImageConverted
+    }
+
+    override fun restoreImage(path: String) {
+        binding.imageConverted.setImageURI(Uri.parse(path))
+        binding.imageConverted.background = null
+        binding.textPathImageConverted.text = path
+    }
 }

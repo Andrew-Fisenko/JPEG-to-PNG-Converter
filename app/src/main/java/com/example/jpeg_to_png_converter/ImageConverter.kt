@@ -3,7 +3,6 @@ package com.example.jpeg_to_png_converter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import io.reactivex.Single
-import io.reactivex.SingleOnSubscribe
 import java.io.FileOutputStream
 
 object ImageConverter {
